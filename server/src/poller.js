@@ -10,7 +10,7 @@ export function createPoller({ key, intervalMs, fetcher, cache, logger, interval
 
   async function tick() {
     const t0 = Date.now()
-    let next
+    let next = baseInterval()
     try {
       const data = await fetcher()
       cache.set(key, data)

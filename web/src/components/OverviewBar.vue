@@ -18,9 +18,10 @@ const agoSec = computed(() => poll.updatedAt.value ? Math.round((Date.now() - po
       {{ idx.name }}
       <b :class="changeColor(idx.changePct)">{{ fmtPrice(idx.price) }} {{ fmtPct(idx.changePct) }}</b>
     </span>
-    <span class="session">🕐 {{ session }}</span>
+    <span v-if="session" class="session">🕐 {{ session }}</span>
     <span v-if="poll.stale.value" class="warn">⚠️ 行情更新中断，展示 {{ agoSec }} 秒前快照</span>
-    <span v-else class="heartbeat">⏱ {{ agoSec }} 秒前更新</span>
+    <span v-else-if="agoSec !== null" class="heartbeat">⏱ {{ agoSec }} 秒前更新</span>
+    <span v-else class="heartbeat">连接中…</span>
   </div>
 </template>
 
