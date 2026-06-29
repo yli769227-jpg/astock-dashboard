@@ -412,6 +412,15 @@ test('parseOverview 取出三大指数', () => {
   expect(indices[0]).toHaveProperty('changePct')
 })
 
+test('parseOverview 把 ×100 整数还原为浮点（ulist 无 fltt=2）', () => {
+  // 上证指数 3021.50 / +0.80% / +24.00 在 ulist 接口里是 302150 / 80 / 2400
+  const raw = { data: { diff: [{ f12: '000001', f14: '上证指数', f2: 302150, f3: 80, f4: 2400 }] } }
+  const { indices } = parseOverview(raw)
+  expect(indices[0].price).toBeCloseTo(3021.5, 2)
+  expect(indices[0].changePct).toBeCloseTo(0.8, 2)
+  expect(indices[0].changeAmt).toBeCloseTo(24, 2)
+})
+
 test('parseSectors 含领涨股字段', () => {
   const rows = parseSectors(load('sectors'))
   expect(rows[0]).toHaveProperty('leader')
@@ -422,6 +431,13 @@ test('parseTimeline 解析分时点', () => {
   expect(Array.isArray(t.points)).toBe(true)
   expect(t.points[0]).toHaveProperty('time')
   expect(t.points[0]).toHaveProperty('price')
+})
+
+test('parseTimeline 昨收取 preSettlement，0 视为 null', () => {
+  const withPrev = { data: { code: '600000', market: 1, preSettlement: 9.87, trends: ['09:30,10,1000,10'] } }
+  expect(parseTimeline(withPrev).prevClose).toBe(9.87)
+  const zeroPrev = { data: { code: '600000', market: 1, preSettlement: 0, trends: [] } }
+  expect(parseTimeline(zeroPrev).prevClose).toBeNull()
 })
 ```
 
@@ -438,6 +454,13 @@ function num(v) {
   if (v === '-' || v === undefined || v === null) return null
   const n = Number(v)
   return Number.isFinite(n) ? n : null
+}
+
+// overview 的 ulist 接口无 fltt=2，f2/f3/f4 是 ×100 的整数，需除以 100 还原
+// （ranking/sectors 的 clist 接口带 fltt=2，已是浮点，不用此函数）—— 见 Task 3 实测
+function scaled(v) {
+  const n = num(v)
+  return n === null ? null : n / 100
 }
 
 export function parseRanking(json) {
@@ -470,9 +493,9 @@ export function parseOverview(json) {
     .map((d) => ({
       code: String(d.f12),
       name: String(d.f14),
-      price: num(d.f2),
-      changePct: num(d.f3),
-      changeAmt: num(d.f4),
+      price: scaled(d.f2),       // ×100 整数还原
+      changePct: scaled(d.f3),   // ×100 整数还原
+      changeAmt: scaled(d.f4),   // ×100 整数还原
     }))
   return { indices }
 }
@@ -510,7 +533,9 @@ export function parseTimeline(json) {
       volume: num(p[2]),
     })
   }
-  return { secid: data.code ? `${data.market}.${data.code}` : null, prevClose: num(data.prePrice), points }
+  // Task 3 实测：昨收字段是 data.preSettlement（不是 prePrice）；盘中可能返回 0，视为不可用
+  const prev = num(data.preSettlement)
+  return { secid: data.code ? `${data.market}.${data.code}` : null, prevClose: prev === 0 ? null : prev, points }
 }
 ```
 
