@@ -16,6 +16,6 @@ test('渲染板块并点击展开成分股', async () => {
   expect(w.text()).toContain('半导体')
   await w.find('tbody tr').trigger('click')
   await wait(); await w.vm.$nextTick()
-  expect(w.text()).toContain('中芯国际')
+  expect(w.text()).toContain('688981') // 成分股代码只在展开的 SectorStocks 里出现，真正验证下钻
   w.unmount()
 })
