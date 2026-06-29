@@ -8,6 +8,8 @@ export function buildApp() {
   return app
 }
 
+export default buildApp
+
 // 直接运行时启动监听（被 import 时不启动，便于测试）
 if (import.meta.url === `file://${process.argv[1]}`) {
   const app = buildApp()
