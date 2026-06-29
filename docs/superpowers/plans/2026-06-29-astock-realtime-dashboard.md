@@ -1506,10 +1506,13 @@ Expected: FAIL（模块不存在）
 - [ ] **Step 4: 写实现** — `web/src/usePolling.js`
 
 ```js
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { getJson } from './api.js'
 
+// path 可为字符串，或返回字符串的 getter（响应式）。用 getter 时，URL 变化会立即重新拉取，
+// 避免「换 tab 重建 poll 实例导致 computed 不再追踪新 ref」的响应式陷阱。
 export function usePolling(path, intervalMs) {
+  const getUrl = typeof path === 'function' ? path : () => path
   const data = ref(null)
   const updatedAt = ref(null)
   const stale = ref(false)
@@ -1521,7 +1524,7 @@ export function usePolling(path, intervalMs) {
 
   async function tick() {
     try {
-      const env = await getJson(path)
+      const env = await getJson(getUrl())
       data.value = env.data
       updatedAt.value = env.updatedAt
       stale.value = env.stale
@@ -1544,6 +1547,15 @@ export function usePolling(path, intervalMs) {
       paused = false
       if (!stopped) tick()
     }
+  }
+
+  // 响应式 URL（getter 形式）变化时立即重拉一次，无需重建 poll 实例
+  if (typeof path === 'function') {
+    watch(path, () => {
+      if (stopped || paused) return
+      if (timer) clearTimeout(timer)
+      tick()
+    })
   }
 
   return {
@@ -1791,7 +1803,7 @@ Expected: FAIL（组件不存在）
 
 ```vue
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { usePolling } from '../usePolling.js'
 import { useFlash } from '../useFlash.js'
 import { changeColor, fmtPrice, fmtPct } from '../format.js'
@@ -1804,16 +1816,11 @@ const tabs = [
 const type = ref('up')
 const { flashClass } = useFlash()
 
-let poll = usePolling(`/api/ranking?type=${type.value}`, 3000)
-poll.start()
+// 用 getter 形式的响应式 URL：切 tab 时 usePolling 内部会自动重拉，无需重建 poll 实例
+const poll = usePolling(() => `/api/ranking?type=${type.value}`, 3000)
 const rows = computed(() => poll.data.value ?? [])
 
-watch(type, (t) => {
-  poll.stop()
-  poll = usePolling(`/api/ranking?type=${t}`, 3000)
-  poll.start()
-})
-onMounted(() => {})
+onMounted(() => poll.start())
 onUnmounted(() => poll.stop())
 </script>
 
@@ -1948,7 +1955,7 @@ td:nth-child(2) { text-align: left; }
 
 ```vue
 <script setup>
-import { ref, watch, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { usePolling } from '../usePolling.js'
 import { changeColor, fmtPct } from '../format.js'
 import SectorStocks from './SectorStocks.vue'
@@ -1957,15 +1964,13 @@ const emit = defineEmits(['pick-stock'])
 const type = ref('industry')
 const expanded = ref(null)
 
-let poll = usePolling(`/api/sectors?type=${type.value}`, 5000)
-poll.start()
+// getter 形式响应式 URL：切 行业/概念 时自动重拉，无需重建 poll
+const poll = usePolling(() => `/api/sectors?type=${type.value}`, 5000)
 const rows = computed(() => poll.data.value ?? [])
 
-watch(type, (t) => {
-  poll.stop(); expanded.value = null
-  poll = usePolling(`/api/sectors?type=${t}`, 5000)
-  poll.start()
-})
+watch(type, () => { expanded.value = null }) // 切换类别时收起已展开的成分股
+
+onMounted(() => poll.start())
 onUnmounted(() => poll.stop())
 
 function toggle(code) { expanded.value = expanded.value === code ? null : code }
@@ -2087,7 +2092,8 @@ const emit = defineEmits(['close'])
 const chartEl = ref(null)
 let chart = null
 
-let poll = usePolling(`/api/stock/${props.code}/timeline`, 3000)
+// getter 形式响应式 URL：切换个股（props.code 变）时自动重拉，无需重建 poll
+const poll = usePolling(() => `/api/stock/${props.code}/timeline`, 3000)
 const points = computed(() => poll.data.value?.points ?? [])
 
 function render() {
@@ -2105,11 +2111,6 @@ function render() {
 }
 
 watch(points, render)
-watch(() => props.code, (c) => {
-  poll.stop()
-  poll = usePolling(`/api/stock/${c}/timeline`, 3000)
-  poll.start()
-})
 
 onMounted(() => { chart = echarts.init(chartEl.value); poll.start() })
 onUnmounted(() => { poll.stop(); if (chart) chart.dispose(); chart = null })
