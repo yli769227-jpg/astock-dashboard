@@ -1,0 +1,9 @@
+:root { --up: #e53935; --down: #1db954; --flat: #888; --bg: #14161a; --fg: #e8e8e8; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.flat { color: var(--flat); }
+.cell-flash-up { animation: flashUp .6s ease-out; }
+.cell-flash-down { animation: flashDown .6s ease-out; }
+@keyframes flashUp { from { background: rgba(229,57,53,.5); } to { background: transparent; } }
+@keyframes flashDown { from { background: rgba(29,185,84,.5); } to { background: transparent; } }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
