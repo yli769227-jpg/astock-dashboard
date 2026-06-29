@@ -855,15 +855,19 @@ git commit -m "feat(server): 定时拉取器 + 失败指数退避 + 旧快照降
 
 ## Task 8: 按需懒加载管理（lazy.js）
 
+> 设计说明：HTTP 短连接是无状态的，每次 `/api/sector/:code/stocks` 请求无法在「客户端关闭」时收到通知，因此引用计数模型不适用。改用**访问续命（last-seen）模型**：每次 `acquire(key)` 刷新该 key 的 `lastSeen`；一个后台 sweeper 每 10s 扫描，超过 `idleMs` 无人访问的 key 停拉。
+
 **Files:**
 - Create: `server/src/lazy.js`
 - Create: `server/tests/lazy.test.js`
 
 **Interfaces:**
 - Consumes: `poller.js`、`cache.js`。
-- Produces: `createLazyManager({ cache, logger, makeFetcher, idleMs = 60000 })` → `{ acquire(key), getOrNull(key) }`
-  - `acquire(key)`：引用计数 +1；首个引用时为该 key 起一个 poller（用 `makeFetcher(key)` 作 fetcher，间隔 5000ms）。返回一个 `release()` 函数，调用后计数 -1；计数归零时启动 `idleMs` 定时器，到期仍为 0 则 stop poller 并日志 `[懒加载] <key> 空闲停拉`。
+- Produces: `createLazyManager({ cache, logger, makeFetcher, idleMs = 60000 })` → `{ acquire(key), getOrNull(key), _stopAll() }`
+  - `acquire(key)`：首次访问某 key 时为它起一个 poller（用 `makeFetcher(key)` 作 fetcher，间隔 5000ms）并记 `lastSeen`；再次访问只刷新 `lastSeen`（续命），不重复起 poller。无返回值。
   - `getOrNull(key)`：返回 `cache.get(key) ?? null`。
+  - `_stopAll()`：清理 sweeper 与全部 poller（供 app 关闭时调用）。
+  - 后台 sweeper：`setInterval` 每 10000ms 扫描，`now - lastSeen > idleMs` 的 key → stop poller + 从 entries 删除 + 日志 `[懒加载] <key> 空闲 <idleMs>ms 停拉`。sweeper 用 `.unref()` 避免阻止进程退出。
   - `makeFetcher(key)`：调用方注入，把 `key`（如 `sector:BK0475` / `timeline:1.600000`）映射到对应 fetch 调用。
 
 - [ ] **Step 1: 写失败测试** — `server/tests/lazy.test.js`
@@ -877,43 +881,38 @@ const noopLog = { info() {}, warn() {}, error() {} }
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
-test('首个 acquire 触发拉取，写入缓存', async () => {
+test('首个 acquire 触发拉取', async () => {
   const cache = createCache()
-  const makeFetcher = (key) => async () => [`data-of-${key}`]
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher, idleMs: 60000 })
+  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: (k) => async () => [k], idleMs: 60000 })
   m.acquire('sector:BK1')
   await vi.advanceTimersByTimeAsync(0)
-  expect(cache.get('sector:BK1').data).toEqual(['data-of-sector:BK1'])
+  expect(cache.get('sector:BK1').data).toEqual(['sector:BK1'])
+  m._stopAll()
 })
 
-test('计数归零 + idle 到期后停止拉取', async () => {
+test('停止访问超过 idle 后停拉', async () => {
   const cache = createCache()
-  const fetchCalls = vi.fn(async () => [1])
-  const makeFetcher = () => fetchCalls
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher, idleMs: 60000 })
-  const release = m.acquire('sector:BK1')
+  const fetcher = vi.fn(async () => [1])
+  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: () => fetcher, idleMs: 60000 })
+  m.acquire('k')
   await vi.advanceTimersByTimeAsync(0)
-  const callsBefore = fetchCalls.mock.calls.length
-  release()
-  await vi.advanceTimersByTimeAsync(61000) // 超过 idle
-  const callsAfterIdle = fetchCalls.mock.calls.length
-  await vi.advanceTimersByTimeAsync(10000) // 再等，不应再增长
-  expect(fetchCalls.mock.calls.length).toBe(callsAfterIdle)
-  expect(callsAfterIdle).toBeGreaterThanOrEqual(callsBefore)
+  await vi.advanceTimersByTimeAsync(71000) // 不再 acquire，超过 idle + sweep
+  const after = fetcher.mock.calls.length
+  await vi.advanceTimersByTimeAsync(10000)
+  expect(fetcher.mock.calls.length).toBe(after) // 已停拉
+  m._stopAll()
 })
 
-test('多引用时 release 一个不停拉', async () => {
+test('持续 acquire 续命则不停拉', async () => {
   const cache = createCache()
-  const fetchCalls = vi.fn(async () => [1])
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: () => fetchCalls, idleMs: 60000 })
-  const r1 = m.acquire('k'); const r2 = m.acquire('k')
-  await vi.advanceTimersByTimeAsync(0)
-  r1()
-  await vi.advanceTimersByTimeAsync(61000)
-  const before = fetchCalls.mock.calls.length
-  await vi.advanceTimersByTimeAsync(6000) // 仍有 r2，应继续 5s 拉取
-  expect(fetchCalls.mock.calls.length).toBeGreaterThan(before)
-  r2()
+  const fetcher = vi.fn(async () => [1])
+  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: () => fetcher, idleMs: 60000 })
+  m.acquire('k')
+  for (let i = 0; i < 10; i++) { await vi.advanceTimersByTimeAsync(10000); m.acquire('k') }
+  const before = fetcher.mock.calls.length
+  await vi.advanceTimersByTimeAsync(6000)
+  expect(fetcher.mock.calls.length).toBeGreaterThan(before)
+  m._stopAll()
 })
 ```
 
@@ -928,40 +927,36 @@ Expected: FAIL（模块不存在）
 import { createPoller } from './poller.js'
 
 export function createLazyManager({ cache, logger, makeFetcher, idleMs = 60000 }) {
-  const entries = new Map() // key -> { count, poller, idleTimer }
+  const entries = new Map() // key -> { poller, lastSeen }
+
+  function sweep() {
+    const now = Date.now()
+    for (const [key, e] of entries) {
+      if (now - e.lastSeen > idleMs) {
+        e.poller.stop()
+        entries.delete(key)
+        logger.info(`[懒加载] ${key} 空闲 ${idleMs}ms 停拉`)
+      }
+    }
+  }
+  const sweeper = setInterval(sweep, 10000)
+  if (sweeper.unref) sweeper.unref()
 
   return {
     acquire(key) {
       let e = entries.get(key)
       if (!e) {
-        const poller = createPoller({
-          key, intervalMs: 5000, fetcher: makeFetcher(key), cache, logger,
-        })
-        e = { count: 0, poller, idleTimer: null }
+        const poller = createPoller({ key, intervalMs: 5000, fetcher: makeFetcher(key), cache, logger })
+        e = { poller, lastSeen: Date.now() }
         entries.set(key, e)
         poller.start()
         logger.info(`[懒加载] ${key} 进入活跃清单`)
-      }
-      if (e.idleTimer) { clearTimeout(e.idleTimer); e.idleTimer = null }
-      e.count += 1
-
-      let released = false
-      return function release() {
-        if (released) return
-        released = true
-        e.count -= 1
-        if (e.count <= 0) {
-          e.idleTimer = setTimeout(() => {
-            e.poller.stop()
-            entries.delete(key)
-            logger.info(`[懒加载] ${key} 空闲 ${idleMs}ms 停拉`)
-          }, idleMs)
-        }
+      } else {
+        e.lastSeen = Date.now() // 续命
       }
     },
-    getOrNull(key) {
-      return cache.get(key) ?? null
-    },
+    getOrNull(key) { return cache.get(key) ?? null },
+    _stopAll() { clearInterval(sweeper); for (const e of entries.values()) e.poller.stop() },
   }
 }
 ```
@@ -976,7 +971,7 @@ Expected: PASS（3 passed）
 ```bash
 cd /Users/zhangyida/astock-dashboard
 git add server/src/lazy.js server/tests/lazy.test.js
-git commit -m "feat(server): 按需懒加载（引用计数 + 60s 空闲停拉）"
+git commit -m "feat(server): 按需懒加载（访问续命 last-seen + 60s 空闲停拉）"
 ```
 
 ---
@@ -1200,95 +1195,7 @@ export function registerRoutes(app, { cache, lazy }) {
 }
 ```
 
-> 懒加载回收说明：HTTP 短连接每次 `acquire` 立即 +1 又因不调 `release` 而**不会 -1**；为避免计数只增不减，改用「轮询续命」模型——见 Step 3b。
-
-- [ ] **Step 3b: 修正懒加载续命模型**
-
-把 `lazy.js` 的 `acquire` 改为**基于最近访问时间**而非引用计数（更贴合无状态 HTTP 轮询）。替换 `server/src/lazy.js` 实现为：
-
-```js
-import { createPoller } from './poller.js'
-
-export function createLazyManager({ cache, logger, makeFetcher, idleMs = 60000 }) {
-  const entries = new Map() // key -> { poller, lastSeen }
-
-  function sweep() {
-    const now = Date.now()
-    for (const [key, e] of entries) {
-      if (now - e.lastSeen > idleMs) {
-        e.poller.stop()
-        entries.delete(key)
-        logger.info(`[懒加载] ${key} 空闲 ${idleMs}ms 停拉`)
-      }
-    }
-  }
-  const sweeper = setInterval(sweep, 10000)
-  if (sweeper.unref) sweeper.unref()
-
-  return {
-    acquire(key) {
-      let e = entries.get(key)
-      if (!e) {
-        const poller = createPoller({ key, intervalMs: 5000, fetcher: makeFetcher(key), cache, logger })
-        e = { poller, lastSeen: Date.now() }
-        entries.set(key, e)
-        poller.start()
-        logger.info(`[懒加载] ${key} 进入活跃清单`)
-      } else {
-        e.lastSeen = Date.now() // 续命
-      }
-    },
-    getOrNull(key) { return cache.get(key) ?? null },
-    _stopAll() { clearInterval(sweeper); for (const e of entries.values()) e.poller.stop() },
-  }
-}
-```
-
-并更新 `server/tests/lazy.test.js` 为「访问续命」语义（替换原 3 个用例）：
-
-```js
-import { test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createLazyManager } from '../src/lazy.js'
-import { createCache } from '../src/cache.js'
-
-const noopLog = { info() {}, warn() {}, error() {} }
-beforeEach(() => vi.useFakeTimers())
-afterEach(() => vi.useRealTimers())
-
-test('首个 acquire 触发拉取', async () => {
-  const cache = createCache()
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: (k) => async () => [k], idleMs: 60000 })
-  m.acquire('sector:BK1')
-  await vi.advanceTimersByTimeAsync(0)
-  expect(cache.get('sector:BK1').data).toEqual(['sector:BK1'])
-  m._stopAll()
-})
-
-test('停止访问超过 idle 后停拉', async () => {
-  const cache = createCache()
-  const fetcher = vi.fn(async () => [1])
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: () => fetcher, idleMs: 60000 })
-  m.acquire('k')
-  await vi.advanceTimersByTimeAsync(0)
-  await vi.advanceTimersByTimeAsync(71000) // 不再 acquire，超过 idle + sweep
-  const after = fetcher.mock.calls.length
-  await vi.advanceTimersByTimeAsync(10000)
-  expect(fetcher.mock.calls.length).toBe(after) // 已停拉
-  m._stopAll()
-})
-
-test('持续 acquire 续命则不停拉', async () => {
-  const cache = createCache()
-  const fetcher = vi.fn(async () => [1])
-  const m = createLazyManager({ cache, logger: noopLog, makeFetcher: () => fetcher, idleMs: 60000 })
-  m.acquire('k')
-  for (let i = 0; i < 10; i++) { await vi.advanceTimersByTimeAsync(10000); m.acquire('k') }
-  const before = fetcher.mock.calls.length
-  await vi.advanceTimersByTimeAsync(6000)
-  expect(fetcher.mock.calls.length).toBeGreaterThan(before)
-  m._stopAll()
-})
-```
+> 懒加载模型说明：`lazy.acquire(key)` 用的是 Task 8 已实现的**访问续命（last-seen）模型**——HTTP 短连接每次请求只刷新 `lastSeen`，后台 sweeper 在 `idleMs` 无访问后停拉。路由层每次请求调一次 `acquire(key)` 续命即可，无需 release。
 
 - [ ] **Step 4: 改写 app.js 装配** — `server/src/app.js`
 
@@ -2419,7 +2326,7 @@ git commit -m "feat: 后端托管前端 dist + 端到端冒烟 + README"
 - 板块下钻成分股 → Task 16（SectorStocks）✅
 - 个股分时卡片 → Task 17 ✅
 - 后端主动拉 + 内存缓存 → Task 6/7/10 ✅
-- 懒加载 + 60s 停拉 → Task 8 + Task 10 Step 3b（续命模型）✅
+- 懒加载 + 60s 停拉 → Task 8（访问续命 last-seen 模型，Task 10 路由层每请求 acquire 续命）✅
 - 失败降级保留旧快照 + stale → Task 7 + 信封 Task 10 + 前端提示 Task 14 ✅
 - 交易时段频率切换 → Task 9（residentInterval/isTradingTime）→ Task 7 poller 的 `intervalFn` → Task 10 装配接线（overview/ranking 用 `residentInterval`，sectors 用 `sectorInterval`）✅
 - 红涨绿跌 + 变化闪烁 → Task 12/14/15（theme.css + useFlash）✅
