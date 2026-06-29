@@ -1,4 +1,7 @@
 import Fastify from 'fastify'
+import fastifyStatic from '@fastify/static'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createCache } from './cache.js'
 import { createPoller } from './poller.js'
 import { createLazyManager } from './lazy.js'
@@ -39,6 +42,18 @@ export function buildApp({ startPollers = true } = {}) {
 
   app.get('/health', async () => ({ status: 'ok' }))
   registerRoutes(app, { cache, lazy })
+
+  const distDir = fileURLToPath(new URL('../../web/dist', import.meta.url))
+  if (existsSync(distDir)) {
+    app.register(fastifyStatic, { root: distDir })
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.url.startsWith('/api')) return reply.code(404).send({ error: 'not found' })
+      return reply.sendFile('index.html') // SPA 回退
+    })
+    log.info(`[启动] 托管前端 dist：${distDir}`)
+  } else {
+    log.warn(`[启动] 未找到 web/dist，仅提供 /api（开发模式用 vite dev）`)
+  }
 
   app.addHook('onClose', async () => { pollers.forEach((p) => p.stop()); lazy._stopAll() })
   return app
