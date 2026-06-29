@@ -50,6 +50,8 @@ test('parseTimeline 解析分时点', () => {
   expect(Array.isArray(t.points)).toBe(true)
   expect(t.points[0]).toHaveProperty('time')
   expect(t.points[0]).toHaveProperty('price')
+  expect(t.points[0].volume).toBe(2942)
+  expect(t.points[0].avg).toBe(8.750)
 })
 
 test('parseTimeline 昨收取 preSettlement，0 视为 null', () => {

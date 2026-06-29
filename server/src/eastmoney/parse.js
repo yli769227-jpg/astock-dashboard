@@ -17,7 +17,7 @@ export function parseRanking(json) {
   if (!Array.isArray(diff)) return []
   const out = []
   for (const d of diff) {
-    if (d?.f12 === undefined || d?.f14 === undefined) continue // 缺关键字段跳过
+    if (d?.f12 == null || d?.f14 == null) continue // 缺关键字段跳过
     out.push({
       code: String(d.f12),
       name: String(d.f14),
@@ -38,7 +38,7 @@ export function parseOverview(json) {
   const diff = json?.data?.diff
   if (!Array.isArray(diff)) return { indices: [] }
   const indices = diff
-    .filter((d) => d?.f12 !== undefined)
+    .filter((d) => d?.f12 != null)
     .map((d) => ({
       code: String(d.f12),
       name: String(d.f14),
@@ -54,7 +54,7 @@ export function parseSectors(json) {
   if (!Array.isArray(diff)) return []
   const out = []
   for (const d of diff) {
-    if (d?.f12 === undefined) continue
+    if (d?.f12 == null) continue
     out.push({
       code: String(d.f12),
       name: String(d.f14),
@@ -70,7 +70,7 @@ export function parseSectors(json) {
 export function parseTimeline(json) {
   const data = json?.data
   if (!data || !Array.isArray(data.trends)) return { secid: null, prevClose: null, points: [] }
-  // trends 每项形如 "2024-06-28 09:30,价格,均价,成交量,..." 取决于 fields2 顺序
+  // trends 每项形如 "2026-06-29 09:30,价格,成交量,均价" 对应 endpoints.js 的 fields2: f51/f53/f56/f58
   const points = []
   for (const line of data.trends) {
     const p = String(line).split(',')
