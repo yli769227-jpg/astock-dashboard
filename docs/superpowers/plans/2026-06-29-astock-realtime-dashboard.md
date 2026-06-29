@@ -1517,6 +1517,7 @@ export function usePolling(path, intervalMs) {
   let timer = null
   let fails = 0
   let stopped = true
+  let paused = false // tab 隐藏时暂停（区别于 stop），防止 in-flight tick 漏续轮询
 
   async function tick() {
     try {
@@ -1530,19 +1531,26 @@ export function usePolling(path, intervalMs) {
       fails += 1
       if (fails >= 3) error.value = true
     } finally {
-      if (!stopped) timer = setTimeout(tick, intervalMs)
+      if (!stopped && !paused) timer = setTimeout(tick, intervalMs)
     }
   }
 
   function onVisibility() {
-    if (document.hidden) { if (timer) clearTimeout(timer); timer = null }
-    else if (!stopped) tick()
+    if (document.hidden) {
+      paused = true
+      if (timer) clearTimeout(timer)
+      timer = null
+    } else {
+      paused = false
+      if (!stopped) tick()
+    }
   }
 
   return {
     data, updatedAt, stale, error,
     start() {
       stopped = false
+      paused = false
       document.addEventListener('visibilitychange', onVisibility)
       tick()
     },
