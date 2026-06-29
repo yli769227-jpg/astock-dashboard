@@ -1,7 +1,8 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { getJson } from './api.js'
 
 export function usePolling(path, intervalMs) {
+  const getUrl = typeof path === 'function' ? path : () => path
   const data = ref(null)
   const updatedAt = ref(null)
   const stale = ref(false)
@@ -13,7 +14,7 @@ export function usePolling(path, intervalMs) {
 
   async function tick() {
     try {
-      const env = await getJson(path)
+      const env = await getJson(getUrl())
       data.value = env.data
       updatedAt.value = env.updatedAt
       stale.value = env.stale
@@ -36,6 +37,15 @@ export function usePolling(path, intervalMs) {
       paused = false
       if (!stopped) tick()
     }
+  }
+
+  // 响应式 URL（getter 形式）变化时立即重拉一次，无需重建 poll 实例
+  if (typeof path === 'function') {
+    watch(path, () => {
+      if (stopped || paused) return
+      if (timer) clearTimeout(timer)
+      tick()
+    })
   }
 
   return {

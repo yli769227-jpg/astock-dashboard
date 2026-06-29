@@ -56,3 +56,17 @@ test('tab 隐藏时暂停轮询，恢复可见时立即拉一次', async () => {
   // 恢复 document.hidden 为 false 用于后续测试
   Object.defineProperty(document, 'hidden', { value: false, configurable: true })
 })
+
+test('path 为响应式 getter 时，URL 变化立即重新拉取新地址', async () => {
+  const { ref } = await import('vue')
+  const spy = vi.spyOn(api, 'getJson').mockResolvedValue({ data: [1], updatedAt: 1, stale: false })
+  const type = ref('up')
+  const p = usePolling(() => `/api/ranking?type=${type.value}`, 3000)
+  p.start()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(spy).toHaveBeenLastCalledWith('/api/ranking?type=up')
+  type.value = 'down'                       // 改变响应式依赖
+  await vi.advanceTimersByTimeAsync(0)       // 应立即用新 URL 重拉
+  expect(spy).toHaveBeenLastCalledWith('/api/ranking?type=down')
+  p.stop()
+})
