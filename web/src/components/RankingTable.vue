@@ -30,7 +30,7 @@ onUnmounted(() => poll.stop())
     <table class="mono">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>现价</th><th>涨跌幅</th></tr></thead>
       <tbody>
-        <tr v-for="(r, i) in rows" :key="r.code" @click="emit('pick-stock', r.code)">
+        <tr v-for="(r, i) in rows" :key="r.code" @click="emit('pick-stock', { code: r.code, marketId: r.marketId })">
           <td>{{ i + 1 }}</td>
           <td>{{ r.code }}</td>
           <td>{{ r.name }}</td>

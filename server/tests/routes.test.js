@@ -43,6 +43,16 @@ test('/api/sector/:code/stocks 触发 lazy.acquire', async () => {
   await app.close()
 })
 
+test('/api/stock/:code/timeline?market=0 触发 lazy.acquire 带市场后缀', async () => {
+  const cache = createCache()
+  const lazy = fakeLazy(cache)
+  const app = Fastify()
+  registerRoutes(app, { cache, lazy })
+  await app.inject({ url: '/api/stock/920819/timeline?market=0' })
+  expect(lazy.acquire).toHaveBeenCalledWith('timeline:920819:0')
+  await app.close()
+})
+
 test('缓存为空时返回 data:null 而非报错', async () => {
   const cache = createCache()
   const app = Fastify()

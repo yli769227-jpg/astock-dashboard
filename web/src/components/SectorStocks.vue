@@ -14,7 +14,7 @@ const rows = computed(() => poll.data.value ?? [])
 <template>
   <table class="mono substocks">
     <tbody>
-      <tr v-for="r in rows" :key="r.code" @click.stop="emit('pick-stock', r.code)">
+      <tr v-for="r in rows" :key="r.code" @click.stop="emit('pick-stock', { code: r.code, marketId: r.marketId })">
         <td>{{ r.code }}</td><td>{{ r.name }}</td>
         <td :class="changeColor(r.changePct)">{{ fmtPrice(r.price) }} {{ fmtPct(r.changePct) }}</td>
       </tr>

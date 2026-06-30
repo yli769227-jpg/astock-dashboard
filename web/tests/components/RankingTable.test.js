@@ -20,11 +20,11 @@ test('渲染榜单行并涨红', async () => {
 
 test('点行 emit pick-stock', async () => {
   vi.spyOn(api, 'getJson').mockResolvedValue({
-    data: [{ code: '600000', name: '浦发', price: 10, changePct: 1 }], updatedAt: 1, stale: false,
+    data: [{ code: '600000', name: '浦发', price: 10, changePct: 1, marketId: 1 }], updatedAt: 1, stale: false,
   })
   const w = mount(RankingTable)
   await wait(); await w.vm.$nextTick()
   await w.find('tbody tr').trigger('click')
-  expect(w.emitted('pick-stock')[0]).toEqual(['600000'])
+  expect(w.emitted('pick-stock')[0]).toEqual([{ code: '600000', marketId: 1 }])
   w.unmount()
 })

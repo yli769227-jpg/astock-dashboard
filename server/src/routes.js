@@ -31,7 +31,8 @@ export function registerRoutes(app, { cache, lazy }) {
   })
 
   app.get('/api/stock/:code/timeline', async (req) => {
-    const key = `timeline:${req.params.code}`
+    const market = req.query.market   // '0' | '1' | undefined
+    const key = `timeline:${req.params.code}:${market ?? ''}`
     lazy.acquire(key)
     return envelope(lazy.getOrNull(key))
   })

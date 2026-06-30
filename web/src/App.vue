@@ -12,10 +12,10 @@ const picked = ref(null)
   <div class="app">
     <OverviewBar />
     <div class="main">
-      <section class="left"><h3>涨跌幅榜</h3><RankingTable @pick-stock="(c) => picked = c" /></section>
-      <section class="right"><h3>板块异动</h3><SectorPanel @pick-stock="(c) => picked = c" /></section>
+      <section class="left"><h3>涨跌幅榜</h3><RankingTable @pick-stock="(s) => picked = s" /></section>
+      <section class="right"><h3>板块异动</h3><SectorPanel @pick-stock="(s) => picked = s" /></section>
     </div>
-    <StockTimelineCard v-if="picked" :code="picked" @close="picked = null" />
+    <StockTimelineCard v-if="picked" :code="picked.code" :market-id="picked.marketId" @close="picked = null" />
   </div>
 </template>
 

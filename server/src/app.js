@@ -15,11 +15,16 @@ export function buildApp({ startPollers = true } = {}) {
   const cache = createCache()
   const log = app.log
 
-  // 懒加载 fetcher 路由：key 形如 sector:BK0475 / timeline:600000
+  // 懒加载 fetcher 路由：key 形如 sector:BK0475 / timeline:600000: / timeline:920819:0
   const makeFetcher = (key) => {
-    const [kind, id] = key.split(':')
-    if (kind === 'sector') return () => fetchSectorStocks(id)
-    if (kind === 'timeline') return () => fetchTimeline(toSecid({ code: id }))
+    const parts = key.split(':')
+    const kind = parts[0]
+    if (kind === 'sector') return () => fetchSectorStocks(parts[1])
+    if (kind === 'timeline') {
+      const code = parts[1]
+      const market = parts[2] === '' || parts[2] === undefined ? undefined : Number(parts[2])
+      return () => fetchTimeline(toSecid({ code, marketId: market }))
+    }
     return async () => null
   }
   const lazy = createLazyManager({ cache, logger: log, makeFetcher, idleMs: 60000 })

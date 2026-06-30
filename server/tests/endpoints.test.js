@@ -28,6 +28,18 @@ test('toSecid 优先用 marketId', () => {
   expect(toSecid({ code: '600000', marketId: 0 })).toBe('0.600000')
 })
 
+test('toSecid 北交所 920819 带 marketId:0 不误判为沪市', () => {
+  expect(toSecid({ code: '920819', marketId: 0 })).toBe('0.920819')
+})
+
+test('toSecid 北交所 4 开头（430090）无 marketId 也映射到 0.xxxxx', () => {
+  expect(toSecid({ code: '430090' })).toBe('0.430090')
+})
+
+test('toSecid 北交所 8 开头（830001）无 marketId 也映射到 0.xxxxx', () => {
+  expect(toSecid({ code: '830001' })).toBe('0.830001')
+})
+
 test('timelineUrl 带 secid', () => {
   expect(timelineUrl({ secid: '1.600000' })).toContain('secid=1.600000')
 })

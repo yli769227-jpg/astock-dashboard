@@ -3,13 +3,19 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import * as echarts from 'echarts'
 import { usePolling } from '../usePolling.js'
 
-const props = defineProps({ code: { type: String, required: true } })
+const props = defineProps({
+  code: { type: String, required: true },
+  marketId: { type: Number, required: false, default: null },
+})
 const emit = defineEmits(['close'])
 const chartEl = ref(null)
 let chart = null
 
 // getter 形式响应式 URL：切换个股（props.code 变）时自动重拉，无需重建 poll
-const poll = usePolling(() => `/api/stock/${props.code}/timeline`, 3000)
+const poll = usePolling(() => {
+  const m = props.marketId != null ? `?market=${props.marketId}` : ''
+  return `/api/stock/${props.code}/timeline${m}`
+}, 3000)
 const points = computed(() => poll.data.value?.points ?? [])
 
 function render() {
