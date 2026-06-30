@@ -62,6 +62,8 @@ export function timelineUrl({ secid }) {
 
 export function toSecid({ code, marketId }) {
   if (marketId === 0 || marketId === 1) return `${marketId}.${code}`
-  const sh = /^[695]/.test(code)
+  // 北交所代码以 4/8/9 开头，东财 secid 用 0 前缀（与深市相同）
+  // 沪市主板/科创板以 6 开头；5 开头为沪市 ETF/可转债
+  const sh = /^[65]/.test(code)
   return `${sh ? 1 : 0}.${code}`
 }
